@@ -236,6 +236,7 @@ label.file input{display:none}
   font-size:26px;
   font-weight:800;
   letter-spacing:-.03em;
+  font-variant-numeric: tabular-nums;
 }
 .stat__value--glow{
   text-shadow: 0 0 22px rgba(34,211,238,.18), 0 0 45px rgba(59,130,246,.10);
@@ -246,6 +247,107 @@ label.file input{display:none}
   font-size:12px;
   letter-spacing:.01em;
 }
+.stat__subtext--rate{
+  margin-top:6px;
+  color: rgba(177,247,255,.88);
+  font-weight:600;
+  font-variant-numeric: tabular-nums;
+}
+.earnedMiniGrid{
+  margin-top:10px;
+  display:grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap:8px;
+}
+.earnedMini{
+  border:1px solid rgba(120,200,255,.14);
+  background: rgba(255,255,255,.03);
+  border-radius:12px;
+  padding:7px 8px;
+}
+.earnedMini__label{
+  color:var(--muted2);
+  font-size:10px;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+.earnedMini__value{
+  margin-top:3px;
+  font-size:12px;
+  font-weight:700;
+  color:var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.earnedMetaLine{
+  margin-top:10px;
+  padding:8px 10px;
+  border-radius:12px;
+  border:1px solid rgba(120,200,255,.12);
+  background: rgba(0,0,0,.16);
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  align-items:center;
+}
+.earnedMetaLine__label{
+  color:var(--muted2);
+  font-size:11px;
+}
+.earnedMetaLine__value{
+  color:var(--text);
+  font-size:12px;
+  font-weight:700;
+  font-variant-numeric: tabular-nums;
+}
+.moneyCounter{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:1px;
+  min-height:1.25em;
+  line-height:1.12;
+}
+.moneyChar{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:.52em;
+  vertical-align:middle;
+}
+.moneyChar--tight{
+  min-width:.3em;
+}
+.moneyChar--changed{
+  color:#b1f7ff;
+  text-shadow: 0 0 8px rgba(34,211,238,.12), 0 0 14px rgba(59,130,246,.10);
+}
+.moneyChar--roll{
+  overflow:hidden;
+  height:1.16em;
+}
+.moneyChar__plain{
+  display:inline-block;
+}
+.moneyChar__stack{
+  display:flex;
+  flex-direction:column;
+  transform:translateY(0);
+  transition:transform .42s cubic-bezier(.18,.9,.22,1), filter .42s ease;
+  will-change:transform, filter;
+}
+.moneyChar--rolled .moneyChar__stack{
+  transform:translateY(calc(-50% + .01em));
+  filter: drop-shadow(0 0 6px rgba(34,211,238,.10));
+}
+.moneyChar__face{
+  height:1.16em;
+  line-height:1.16;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding-bottom:.02em;
+}
 .baselineChips{
   margin-top:10px;
   display:flex;
@@ -255,10 +357,10 @@ label.file input{display:none}
 .baselineChip{
   display:inline-flex;
   align-items:center;
-  padding:5px 9px;
+  padding:6px 10px;
   border-radius:999px;
   border:1px solid rgba(120,200,255,.16);
-  background:rgba(255,255,255,.03);
+  background:rgba(255,255,255,.02);
   color:var(--muted);
   font-size:11px;
   letter-spacing:.01em;

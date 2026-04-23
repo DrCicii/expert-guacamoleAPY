@@ -134,8 +134,25 @@
             <div class="stat">
               <div class="stat__label">Total earned</div>
               <div id="totalEarned" class="stat__value stat__value--glow">$0.0000</div>
-              <div id="totalEarnedPeriods" class="stat__subtext">1d: $0.0000 · 7d: $0.0000 · 30d: $0.0000</div>
-              <div id="timeToDollar" class="stat__subtext">Time to next +$1: --:--:--</div>
+              <div id="totalEarnedPerSecond" class="stat__subtext stat__subtext--rate">+$0.0000 / sec</div>
+              <div class="earnedMiniGrid" aria-label="Earnings by period">
+                <div class="earnedMini">
+                  <div class="earnedMini__label">1d</div>
+                  <div id="totalEarned1d" class="earnedMini__value">$0.0000</div>
+                </div>
+                <div class="earnedMini">
+                  <div class="earnedMini__label">7d</div>
+                  <div id="totalEarned7d" class="earnedMini__value">$0.0000</div>
+                </div>
+                <div class="earnedMini">
+                  <div class="earnedMini__label">30d</div>
+                  <div id="totalEarned30d" class="earnedMini__value">$0.0000</div>
+                </div>
+              </div>
+              <div class="earnedMetaLine">
+                <span class="earnedMetaLine__label">Time to next +$1</span>
+                <span id="timeToDollar" class="earnedMetaLine__value">--:--:--</span>
+              </div>
               <div class="baselineChips">
                 <span id="chipDayBaseline" class="baselineChip">Today vs yesterday: --</span>
                 <span id="chipWeekBaseline" class="baselineChip">This week vs last week: --</span>
@@ -172,6 +189,7 @@
                 <select id="inDecimals" class="input input--sm">
                   <option value="2">2</option>
                   <option value="4" selected>4</option>
+                  <option value="5">5</option>
                   <option value="6">6</option>
                 </select>
               </div>

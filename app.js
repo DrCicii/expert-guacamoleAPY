@@ -136,7 +136,10 @@ const els = {
   rows: $("rows"),
   totalDeposit: $("totalDeposit"),
   totalEarned: $("totalEarned"),
-  totalEarnedPeriods: $("totalEarnedPeriods"),
+  totalEarnedPerSecond: $("totalEarnedPerSecond"),
+  totalEarned1d: $("totalEarned1d"),
+  totalEarned7d: $("totalEarned7d"),
+  totalEarned30d: $("totalEarned30d"),
   timeToDollar: $("timeToDollar"),
   chipDayBaseline: $("chipDayBaseline"),
   chipWeekBaseline: $("chipWeekBaseline"),
@@ -196,6 +199,7 @@ let editingId = null;
 let syncing = false;
 let stableApyRefreshTimer = null;
 let monitorSyncTimer = null;
+let earnedAnimationFrame = null;
 let chartSeriesCache = [];
 let chartScrubIndex = null;
 let chartRange = "all"; // "7d" | "30d" | "all"
@@ -239,6 +243,12 @@ const notificationState = {
   lastApyByPlatform: new Map(), // platform id -> effective APY %
   inFlight: false,
 };
+const earnedCounterState = {
+  displayedValue: null,
+  lastFormatted: "",
+  lastRateText: "",
+  rollingFramePending: false,
+};
 
 function computeTotalsSnapshot(nowMs) {
   const totalDeposit = state.platforms.reduce((acc, p) => acc + (Number.isFinite(p.deposit) ? p.deposit : 0), 0);
@@ -251,6 +261,11 @@ function computeTotalsSnapshot(nowMs) {
     totalValue,
     totalEarned: totalValue - totalDeposit,
   };
+}
+
+function computeTotalEarnRatePerSecond(nowMs) {
+  const totalPerYear = state.platforms.reduce((acc, p) => acc + computeEarnRatePerYear(p, nowMs), 0);
+  return totalPerYear / (365.2425 * 24 * 60 * 60);
 }
 
 function formatUtcStamp(ms) {
@@ -366,7 +381,108 @@ function setCurrency(currency) {
 function setDecimals(decimals) {
   state.settings.decimals = clampInt(decimals, 0, 8);
   saveState(state);
+  earnedCounterState.lastFormatted = "";
+  earnedCounterState.lastRateText = "";
   tick();
+}
+
+function renderAnimatedEarnedCounter(displayedValue, ratePerSecond, { force = false } = {}) {
+  if (!els.totalEarned) return;
+  const { currency, decimals } = state.settings;
+  const formatted = formatMoney(displayedValue, { currency, decimals });
+  const previous = earnedCounterState.lastFormatted || formatted;
+  const shouldRender = force || formatted !== earnedCounterState.lastFormatted;
+
+  if (shouldRender) {
+    const nextChars = [...formatted];
+    const prevChars = [...previous];
+    const html = nextChars
+      .map((char, index) => {
+        const prevChar = prevChars[index] ?? "";
+        const changed = prevChar !== char;
+        const isDigitish = /[0-9]/.test(char) || /[0-9]/.test(prevChar);
+        const tight = /[.,]/.test(char) || char === " ";
+        const classes = [
+          "moneyChar",
+          tight ? "moneyChar--tight" : "",
+          changed ? "moneyChar--changed" : "",
+          changed && isDigitish ? "moneyChar--roll" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        if (!changed || !isDigitish) {
+          return `<span class="${classes}"><span class="moneyChar__plain">${escapeHtml(char)}</span></span>`;
+        }
+
+        return `
+          <span class="${classes}" data-next-char="${escapeHtml(char)}">
+            <span class="moneyChar__stack">
+              <span class="moneyChar__face">${escapeHtml(prevChar || char)}</span>
+              <span class="moneyChar__face">${escapeHtml(char)}</span>
+            </span>
+          </span>
+        `;
+      })
+      .join("");
+
+    els.totalEarned.innerHTML = `<span class="moneyCounter" aria-label="${escapeHtml(formatted)}">${html}</span>`;
+    earnedCounterState.lastFormatted = formatted;
+
+    if (!earnedCounterState.rollingFramePending) {
+      earnedCounterState.rollingFramePending = true;
+      requestAnimationFrame(() => {
+        earnedCounterState.rollingFramePending = false;
+        els.totalEarned
+          ?.querySelectorAll?.(".moneyChar--roll")
+          ?.forEach?.((node) => {
+            node.classList.add("moneyChar--rolled");
+            const stack = node.querySelector(".moneyChar__stack");
+            if (!stack) return;
+            let finished = false;
+            const finalize = () => {
+              if (finished) return;
+              finished = true;
+              const nextChar = node.getAttribute("data-next-char") ?? "";
+              node.classList.remove("moneyChar--roll", "moneyChar--rolled");
+              node.removeAttribute("data-next-char");
+              node.innerHTML = `<span class="moneyChar__plain">${escapeHtml(nextChar)}</span>`;
+            };
+            stack.addEventListener("transitionend", finalize, { once: true });
+            setTimeout(finalize, 560);
+          });
+      });
+    }
+  }
+
+  if (els.totalEarnedPerSecond) {
+    const rateText = `${ratePerSecond >= 0 ? "+" : "-"}${formatMoney(Math.abs(ratePerSecond), {
+      currency,
+      decimals: Math.max(decimals, 4),
+    })} / sec`;
+    if (force || rateText !== earnedCounterState.lastRateText) {
+      els.totalEarnedPerSecond.textContent = rateText;
+      earnedCounterState.lastRateText = rateText;
+    }
+  }
+}
+
+function animateEarnedCounter() {
+  const nowMs = Date.now();
+  const { totalEarned } = computeTotalsSnapshot(nowMs);
+  const ratePerSecond = computeTotalEarnRatePerSecond(nowMs);
+
+  if (!Number.isFinite(earnedCounterState.displayedValue)) {
+    earnedCounterState.displayedValue = totalEarned;
+  } else {
+    const delta = totalEarned - earnedCounterState.displayedValue;
+    const smoothing = Math.min(0.28, Math.max(0.1, state.settings.intervalMs / 16000));
+    earnedCounterState.displayedValue += delta * smoothing;
+    if (Math.abs(delta) < 1e-7) earnedCounterState.displayedValue = totalEarned;
+  }
+
+  renderAnimatedEarnedCounter(earnedCounterState.displayedValue, ratePerSecond);
+  earnedAnimationFrame = requestAnimationFrame(animateEarnedCounter);
 }
 
 function renderTable(nowMs) {
@@ -422,16 +538,17 @@ function renderTotals(nowMs) {
 
   els.totalDeposit.textContent = formatMoney(totalDeposit, { currency, decimals });
   els.totalValue.textContent = formatMoney(totalValue, { currency, decimals });
-  els.totalEarned.textContent = formatMoney(totalEarned, { currency, decimals });
-  if (els.totalEarnedPeriods) {
-    const daily = totalEarned - computeTotalEarnedAt(nowMs - 24 * 60 * 60 * 1000);
-    const weekly = totalEarned - computeTotalEarnedAt(nowMs - 7 * 24 * 60 * 60 * 1000);
-    const monthly = totalEarned - computeTotalEarnedAt(nowMs - 30 * 24 * 60 * 60 * 1000);
-    els.totalEarnedPeriods.textContent =
-      `1d: ${formatMoney(daily, { currency, decimals })} · ` +
-      `7d: ${formatMoney(weekly, { currency, decimals })} · ` +
-      `30d: ${formatMoney(monthly, { currency, decimals })}`;
-  }
+  renderAnimatedEarnedCounter(
+    Number.isFinite(earnedCounterState.displayedValue) ? earnedCounterState.displayedValue : totalEarned,
+    computeTotalEarnRatePerSecond(nowMs),
+    { force: !earnedCounterState.lastFormatted }
+  );
+  const daily = totalEarned - computeTotalEarnedAt(nowMs - 24 * 60 * 60 * 1000);
+  const weekly = totalEarned - computeTotalEarnedAt(nowMs - 7 * 24 * 60 * 60 * 1000);
+  const monthly = totalEarned - computeTotalEarnedAt(nowMs - 30 * 24 * 60 * 60 * 1000);
+  if (els.totalEarned1d) els.totalEarned1d.textContent = formatMoney(daily, { currency, decimals });
+  if (els.totalEarned7d) els.totalEarned7d.textContent = formatMoney(weekly, { currency, decimals });
+  if (els.totalEarned30d) els.totalEarned30d.textContent = formatMoney(monthly, { currency, decimals });
   renderTimeToDollar(nowMs, totalEarned);
   renderBaselineChips(nowMs);
 }
@@ -464,13 +581,13 @@ function renderTimeToDollar(nowMs, totalEarned) {
   const totalPerYear = state.platforms.reduce((acc, p) => acc + computeEarnRatePerYear(p, nowMs), 0);
   const perMs = totalPerYear / YEAR_MS;
   if (!Number.isFinite(perMs) || perMs <= 0) {
-    els.timeToDollar.textContent = "Time to next +$1: --:--:--";
+    els.timeToDollar.textContent = "--:--:--";
     return;
   }
   const nextWhole = Math.floor(totalEarned) + 1;
   const remaining = Math.max(0, nextWhole - totalEarned);
   const msLeft = remaining / perMs;
-  els.timeToDollar.textContent = `Time to next +$1: ${formatDuration(msLeft)}`;
+  els.timeToDollar.textContent = formatDuration(msLeft);
 }
 
 function formatDeltaPct(deltaPct) {
@@ -1853,8 +1970,12 @@ function init() {
   setChartRange("all");
   switchTopView("dashboard");
   scheduleMonitorStateSync(0);
+  if (!earnedAnimationFrame) {
+    earnedAnimationFrame = requestAnimationFrame(animateEarnedCounter);
+  }
   tick();
 }
 
 init();
+
 
