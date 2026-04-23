@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>DeFi APY Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="bg"></div>
+    <header class="topbar">
+      <div class="wrap topbar__inner">
+        <div class="brand">
+          <div class="brand__mark" aria-hidden="true"></div>
+          <div class="brand__text">
+            <div class="brand__title">DeFi APY Tracker</div>
+            <div class="brand__subtitle">Track deposits, APY, and real-time earnings</div>
+          </div>
+        </div>
+        <div class="topbar__actions">
+          <button id="btnExport" class="btn btn--ghost" type="button">Export</button>
+          <label class="btn btn--ghost file">
+            Import
+            <input id="fileImport" type="file" accept="application/json" />
+          </label>
+          <button id="btnReset" class="btn btn--danger" type="button">Reset</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="tabs">
+        <button id="tabDashboard" class="tab tab--active" type="button">Dashboard</button>
+        <button id="tabApyBoard" class="tab" type="button">APY Board</button>
+      </section>
+
+      <section id="viewDashboard">
+      <section class="grid">
+        <div class="card">
+          <div class="card__title">Add platform</div>
+          <form id="formAdd" class="form">
+            <div class="form__row">
+              <label class="field">
+                <span class="field__label">Platform</span>
+                <input
+                  id="inName"
+                  class="input"
+                  name="name"
+                  placeholder="e.g. Aave v3"
+                  autocomplete="off"
+                  required
+                />
+              </label>
+              <label class="field">
+                <span class="field__label">Symbol (optional)</span>
+                <input
+                  id="inSymbol"
+                  class="input"
+                  name="symbol"
+                  placeholder="e.g. USDC"
+                  autocomplete="off"
+                />
+              </label>
+            </div>
+
+            <div class="form__row">
+              <label class="field">
+                <span class="field__label">Deposit (USD)</span>
+                <input
+                  id="inDeposit"
+                  class="input"
+                  name="deposit"
+                  placeholder="e.g. 1000"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  required
+                />
+              </label>
+              <label class="field">
+                <span class="field__label">APY %</span>
+                <input
+                  id="inApy"
+                  class="input"
+                  name="apy"
+                  placeholder="e.g. 7.25"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  required
+                />
+              </label>
+            </div>
+
+            <div class="form__row">
+              <label class="field">
+                <span class="field__label">Start (optional)</span>
+                <input id="inStart" class="input" name="start" type="datetime-local" />
+              </label>
+              <label class="field">
+                <span class="field__label">Model</span>
+                <select id="inModel" class="input" name="model">
+                  <option value="effective" selected>APY as effective annual yield</option>
+                  <option value="simple">Simple interest (APR-like)</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="form__row form__row--actions">
+              <button class="btn btn--primary" type="submit">Add</button>
+              <button id="btnAddExample" class="btn btn--ghost" type="button">Add example</button>
+            </div>
+          </form>
+
+          <div class="hint">
+            Earnings are computed from your deposit, APY, and start timestamp. Updates every
+            <span id="hintInterval">3</span>s.
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card__title">Live totals</div>
+
+          <div class="totals">
+            <div class="stat">
+              <div class="stat__label">Total deposit</div>
+              <div id="totalDeposit" class="stat__value">$0.0000</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">Total earned</div>
+              <div id="totalEarned" class="stat__value stat__value--glow">$0.0000</div>
+              <div id="totalEarnedPeriods" class="stat__subtext">1d: $0.0000 · 7d: $0.0000 · 30d: $0.0000</div>
+              <div id="timeToDollar" class="stat__subtext">Time to next +$1: --:--:--</div>
+              <div class="baselineChips">
+                <span id="chipDayBaseline" class="baselineChip">Today vs yesterday: --</span>
+                <span id="chipWeekBaseline" class="baselineChip">This week vs last week: --</span>
+              </div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">Total value now</div>
+              <div id="totalValue" class="stat__value">$0.0000</div>
+            </div>
+          </div>
+
+          <div class="settings">
+            <div class="settings__row">
+              <div class="settings__label">Update every</div>
+              <div class="settings__control">
+                <input id="inIntervalMs" class="input input--sm" inputmode="numeric" />
+                <span class="settings__unit">ms</span>
+              </div>
+            </div>
+            <div class="settings__row">
+              <div class="settings__label">Currency</div>
+              <div class="settings__control">
+                <select id="inCurrency" class="input input--sm">
+                  <option value="USD" selected>USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                  <option value="RSD">RSD</option>
+                </select>
+              </div>
+            </div>
+            <div class="settings__row">
+              <div class="settings__label">Decimals</div>
+              <div class="settings__control">
+                <select id="inDecimals" class="input input--sm">
+                  <option value="2">2</option>
+                  <option value="4" selected>4</option>
+                  <option value="6">6</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card card--table">
+        <div class="card__title">Platforms</div>
+
+        <div class="chartBlock">
+          <div class="chartBlock__header">
+            <span class="chartBlock__title">Earnings since start</span>
+            <div class="chartRangeSwitch" role="group" aria-label="Chart timeframe">
+              <button id="btnRange7d" class="chartRangeBtn" type="button">7d</button>
+              <button id="btnRange30d" class="chartRangeBtn" type="button">30d</button>
+              <button id="btnRangeAll" class="chartRangeBtn chartRangeBtn--active" type="button">All</button>
+            </div>
+          </div>
+          <div class="chartWrap">
+            <canvas id="earningsChart" class="earningsChart" aria-label="Cumulative earnings chart"></canvas>
+            <div id="earningsChartScrub" class="chartScrub" style="display:none;">
+              <div id="earningsChartScrubDate" class="chartScrub__date"></div>
+              <div id="earningsChartScrubValue" class="chartScrub__value"></div>
+            </div>
+            <div id="earningsChartEmpty" class="chartEmpty" style="display:none;">Add at least one platform to draw chart.</div>
+          </div>
+        </div>
+
+        <div class="tableWrap">
+          <table class="table" aria-label="DeFi platforms">
+            <thead>
+              <tr>
+                <th>Platform</th>
+                <th>Deposit</th>
+                <th>APY</th>
+                <th>Earned</th>
+                <th>Value now</th>
+                <th>Start</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <div class="footer__left">
+          Calculations are local (saved to your browser). No wallet connection required.
+        </div>
+        <div class="footer__right">
+          <span class="badge" id="clockSkew"></span>
+        </div>
+      </footer>
+      </section>
+
+      <section id="viewApyBoard" style="display:none;">
+      <section class="card card--table">
+        <div class="card__title card__title--row">
+          <span>Stablecoin APY (Kamino)</span>
+          <div style="display:flex; gap:8px;">
+            <button id="btnStopLiveApy" class="btn btn--ghost" type="button">Stop using live APY</button>
+            <button id="btnRefreshStableApy" class="btn btn--ghost" type="button">Refresh</button>
+          </div>
+        </div>
+        <div class="hint" style="padding: 0 18px 10px;">
+          Auto-refresh every 7 minutes. Shows supply APY for stablecoins.
+          <span id="stableApyLastUpdated"></span>
+        </div>
+
+        <div class="tableWrap">
+          <table class="table" aria-label="Stablecoin APYs">
+            <thead>
+              <tr>
+                <th>Protocol</th>
+                <th>Chain</th>
+                <th>Symbol</th>
+                <th>Pool / Market</th>
+                <th>Supply APY</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="stableApyRows"></tbody>
+          </table>
+        </div>
+      </section>
+      </section>
+    </main>
+
+    <dialog id="dlgEdit" class="dlg">
+      <form method="dialog" class="dlg__card">
+        <div class="dlg__title">Edit platform</div>
+
+        <div class="form">
+          <div class="form__row">
+            <label class="field">
+              <span class="field__label">Platform</span>
+              <input id="editName" class="input" autocomplete="off" required />
+            </label>
+            <label class="field">
+              <span class="field__label">Symbol</span>
+              <input id="editSymbol" class="input" autocomplete="off" />
+            </label>
+          </div>
+
+          <div class="form__row">
+            <label class="field">
+              <span class="field__label">Deposit</span>
+              <input id="editDeposit" class="input" inputmode="decimal" required />
+            </label>
+            <label class="field">
+              <span class="field__label">APY %</span>
+              <input id="editApy" class="input" inputmode="decimal" required />
+            </label>
+          </div>
+
+          <div class="form__row">
+            <label class="field">
+              <span class="field__label">Start</span>
+              <input id="editStart" class="input" type="datetime-local" required />
+            </label>
+            <label class="field">
+              <span class="field__label">Model</span>
+              <select id="editModel" class="input">
+                <option value="effective">APY as effective annual yield</option>
+                <option value="simple">Simple interest (APR-like)</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="dlg__actions">
+          <button class="btn btn--ghost" value="cancel">Cancel</button>
+          <button id="btnSaveEdit" class="btn btn--primary" value="save">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
+
