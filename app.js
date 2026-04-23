@@ -201,6 +201,7 @@ const KAMINO_API = "https://api.kamino.finance";
 const JUP_LEND_API = "https://api.jup.ag/lend/v1";
 const JUP_TOKEN_API = "https://api.jup.ag/tokens/v2";
 const TELEGRAM_NOTIFY_API = "/api/telegram/notify";
+const RWA_ONYC_APY_API = "/api/rwa/onyc-apy";
 const STABLE_REFRESH_MS = 7 * 60 * 1000;
 const APY_DROP_ALERT_PCT_POINTS = 1;
 const STABLE_SYMBOLS = new Set([
@@ -1276,10 +1277,13 @@ function renderStableApyRows(rows) {
   if (!els.stableApyRows) return;
   if (!Array.isArray(rows) || rows.length === 0) {
     els.stableApyRows.innerHTML =
-      `<tr><td colspan="6" style="color:rgba(233,236,255,.55);padding:18px">No stablecoin APY data available.</td></tr>`;
+      `<tr><td colspan="6" style="color:rgba(233,236,255,.55);padding:18px">No APY Board data available.</td></tr>`;
     return;
   }
   const sorted = [...rows].sort((a, b) => {
+    const aPinned = String(a.key ?? "") === "rwa:onyc" ? 1 : 0;
+    const bPinned = String(b.key ?? "") === "rwa:onyc" ? 1 : 0;
+    if (aPinned !== bPinned) return bPinned - aPinned;
     const aMain = String(a.pool ?? "").toLowerCase().includes("main market") ? 1 : 0;
     const bMain = String(b.pool ?? "").toLowerCase().includes("main market") ? 1 : 0;
     if (aMain !== bMain) return bMain - aMain;
@@ -1295,6 +1299,9 @@ function renderStableApyRows(rows) {
           <td>${escapeHtml(r.pool)}</td>
           <td><strong>${escapeHtml(formatPctFromDecimalRate(r.apy))}</strong></td>
           <td>
+            ${
+              Number.isFinite(Number(r.apy))
+                ? `
             <button
               class="linkBtn"
               type="button"
@@ -1304,7 +1311,9 @@ function renderStableApyRows(rows) {
               data-apy-pct="${escapeHtml(String((Number(r.apy) * 100).toFixed(6)))}"
             >
               USE
-            </button>
+            </button>`
+                : `<span style="color:rgba(233,236,255,.55)">N/A</span>`
+            }
           </td>
         </tr>
       `
@@ -1347,13 +1356,50 @@ async function fetchKaminoStableApys() {
   return out;
 }
 
+async function fetchRwaOnycApyRow() {
+  try {
+    const payload = await fetchJson(RWA_ONYC_APY_API);
+    const apyPct = Number(payload?.apyPct);
+    if (!Number.isFinite(apyPct)) {
+      throw new Error("Missing ONyc APY in RWA.xyz response");
+    }
+
+    const apyWindow = String(payload?.apyWindow ?? "APY").trim() || "APY";
+    return {
+      protocol: "RWA.xyz",
+      chain: String(payload?.chain ?? "Solana"),
+      symbol: String(payload?.symbol ?? "ONyc"),
+      pool: `${String(payload?.pool ?? "OnRe Tokenized Reinsurance")} / ${apyWindow} APY`,
+      apy: apyPct / 100,
+      key: "rwa:onyc",
+    };
+  } catch (error) {
+    return {
+      protocol: "RWA.xyz",
+      chain: "Solana",
+      symbol: "ONyc",
+      pool: `OnRe Tokenized Reinsurance / unavailable (${error?.message ?? "fetch failed"})`,
+      apy: NaN,
+      key: "rwa:onyc",
+    };
+  }
+}
+
 async function refreshStableApyTable() {
   if (els.stableApyLastUpdated) els.stableApyLastUpdated.textContent = " Refreshing...";
-  const [kaminoRes] = await Promise.allSettled([fetchKaminoStableApys()]);
+  const [kaminoRes, onycRes] = await Promise.allSettled([fetchKaminoStableApys(), fetchRwaOnycApyRow()]);
   const rows = [];
   const warnings = [];
   if (kaminoRes.status === "fulfilled") rows.push(...kaminoRes.value);
   else warnings.push(`Kamino: ${kaminoRes.reason?.message ?? String(kaminoRes.reason)}`);
+  if (onycRes.status === "fulfilled") {
+    rows.push(onycRes.value);
+    if (!Number.isFinite(Number(onycRes.value?.apy))) {
+      warnings.push(`RWA.xyz ONyc: ${String(onycRes.value?.pool ?? "unavailable")}`);
+    }
+  } else {
+    warnings.push(`RWA.xyz ONyc: ${onycRes.reason?.message ?? String(onycRes.reason)}`);
+  }
   renderStableApyRows(rows);
 
   const inUse = state.settings.stableApyInUse;
