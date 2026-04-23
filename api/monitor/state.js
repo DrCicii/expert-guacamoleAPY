@@ -79,7 +79,7 @@ module.exports = async function handler(req, res) {
       platforms: normalized.platforms,
       notification: {
         initialized: false,
-        lastEarnedWholeDollar: 0,
+        lastTotalEarned: null,
         lastApyByPlatform: {},
         lastRunAtMs: 0,
         lastResult: "reset",

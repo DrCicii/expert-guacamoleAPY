@@ -61,7 +61,7 @@ function buildInitialNotificationState(platforms, liveApyPct, totalEarned) {
   }
   return {
     initialized: true,
-    lastEarnedWholeDollar: Math.floor(totalEarned),
+    lastTotalEarned: Number(totalEarned),
     lastApyByPlatform,
     lastRunAtMs: Date.now(),
     lastResult: "initialized",
@@ -122,23 +122,21 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    const currentWhole = Math.floor(totalEarned);
     const messages = [];
     const safeTotal = formatMoney(totalEarned, { currency, decimals });
     const lastApyByPlatform = previous.lastApyByPlatform && typeof previous.lastApyByPlatform === "object"
       ? { ...previous.lastApyByPlatform }
       : {};
+    const prevTotalEarned = Number(previous.lastTotalEarned);
 
-    if (currentWhole > Number(previous.lastEarnedWholeDollar ?? 0)) {
-      for (
-        let earnedInt = Number(previous.lastEarnedWholeDollar ?? 0) + 1;
-        earnedInt <= currentWhole;
-        earnedInt += 1
-      ) {
-        messages.push(
-          `$${earnedInt} milestone reached\nTotal earned now: ${safeTotal}\nTime: ${formatUtcStamp(nowMs)}`
-        );
-      }
+    if (Number.isFinite(prevTotalEarned)) {
+      const earnedLast24h = totalEarned - prevTotalEarned;
+      const earnedText = formatMoney(earnedLast24h, { currency, decimals });
+      messages.push(
+        `💸 Money update: ${earnedText} earned in the last 24 hours. Still printing.\n` +
+        `Total earned now: ${safeTotal}\n` +
+        `Time: ${formatUtcStamp(nowMs)}`
+      );
     }
 
     for (const platform of saved.platforms) {
@@ -161,7 +159,7 @@ module.exports = async function handler(req, res) {
 
     saved.notification = {
       initialized: true,
-      lastEarnedWholeDollar: currentWhole,
+      lastTotalEarned: totalEarned,
       lastApyByPlatform,
       lastRunAtMs: nowMs,
       lastResult: messages.length ? `sent:${messages.length}` : "no-changes",
