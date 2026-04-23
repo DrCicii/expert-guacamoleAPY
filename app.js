@@ -165,6 +165,7 @@ const els = {
   viewDashboard: $("viewDashboard"),
   viewApyBoard: $("viewApyBoard"),
 
+  btnTestTelegram: $("btnTestTelegram"),
   btnStopLiveApy: $("btnStopLiveApy"),
   btnRefreshStableApy: $("btnRefreshStableApy"),
   stableApyRows: $("stableApyRows"),
@@ -273,6 +274,20 @@ async function sendTelegramNotification(text) {
   } catch {
     // Notifications are optional; never break the UI loop on alert errors.
   }
+}
+
+async function sendTestTelegramNotification() {
+  const stamp = new Date().toLocaleString();
+  const message =
+    `Test notification from DeFi APY Tracker\n` +
+    `Status: Telegram integration is working.\n` +
+    `Sent: ${stamp}`;
+
+  await fetchJson(TELEGRAM_NOTIFY_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: message }),
+  });
 }
 
 async function processNotificationTriggers(nowMs) {
@@ -1599,6 +1614,28 @@ function init() {
 
   if (els.btnRefreshStableApy) {
     els.btnRefreshStableApy.addEventListener("click", () => void refreshStableApyTable());
+  }
+  if (els.btnTestTelegram) {
+    els.btnTestTelegram.addEventListener("click", async () => {
+      const prevText = els.btnTestTelegram.textContent;
+      els.btnTestTelegram.disabled = true;
+      els.btnTestTelegram.textContent = "Sending...";
+      try {
+        await sendTestTelegramNotification();
+        if (els.stableApyLastUpdated) {
+          els.stableApyLastUpdated.textContent = ` Test Telegram notification sent at ${new Date().toLocaleString()}.`;
+        }
+      } catch (error) {
+        const message = error?.message ?? String(error);
+        if (els.stableApyLastUpdated) {
+          els.stableApyLastUpdated.textContent = ` Test Telegram failed: ${message}`;
+        }
+        alert(`Telegram test failed: ${message}`);
+      } finally {
+        els.btnTestTelegram.disabled = false;
+        els.btnTestTelegram.textContent = prevText;
+      }
+    });
   }
   if (els.btnStopLiveApy) {
     els.btnStopLiveApy.addEventListener("click", () => {
