@@ -698,6 +698,7 @@ function renderTable(nowMs) {
           : "";
       const topUpCount = Math.max(0, normalizeContributionEntries(p).length - 1);
       const topUpBadge = topUpCount ? `<span class="pill" style="margin-left:8px">${topUpCount} top-up${topUpCount === 1 ? "" : "s"}</span>` : "";
+      const liveActionLabel = platformLiveApy ? "Change live" : "Set live";
 
       return `
         <tr data-id="${p.id}">
@@ -712,7 +713,7 @@ function renderTable(nowMs) {
           <td>
             <div class="rowActions">
               <button class="linkBtn" data-action="deposit" type="button">Deposit</button>
-              ${platformLiveApy ? `<button class="linkBtn" data-action="change-live" type="button">Change live</button>` : ""}
+              <button class="linkBtn" data-action="change-live" type="button">${liveActionLabel}</button>
               <button class="linkBtn" data-action="edit" type="button">Edit</button>
               <button class="linkBtn linkBtn--danger" data-action="delete" type="button">Delete</button>
             </div>
