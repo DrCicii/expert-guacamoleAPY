@@ -39,6 +39,15 @@ function normalizeState(input) {
         apyPct: Number(x.apyPct ?? 0),
         model: x.model === "simple" ? "simple" : "effective",
         startMs: Number(x.startMs ?? Date.now()),
+        contributions: Array.isArray(x.contributions)
+          ? x.contributions
+              .filter((entry) => entry && typeof entry === "object")
+              .map((entry) => ({
+                amount: Number(entry.amount ?? 0),
+                startMs: Number(entry.startMs ?? x.startMs ?? Date.now()),
+              }))
+              .filter((entry) => Number.isFinite(entry.amount) && entry.amount >= 0 && Number.isFinite(entry.startMs))
+          : [],
         source: x.source === "kamino" || x.source === "jupiter" ? x.source : "manual",
         wallet: typeof x.wallet === "string" ? x.wallet : "",
         externalId: typeof x.externalId === "string" ? x.externalId : "",

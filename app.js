@@ -1,6 +1,8 @@
 const STORAGE_KEY = "defi_apy_tracker_v1";
 
 const YEAR_MS = 365.2425 * 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 
 function uid() {
   return Math.random().toString(16).slice(2) + Date.now().toString(16);
@@ -47,21 +49,89 @@ function formatMoney(amount, { currency, decimals }) {
   return `${sign}${symbol}${grouped}.${frac.padEnd(decimals, "0")}`;
 }
 
-function computeValueNow({ deposit, apyPct, model, startMs }, nowMs) {
+function computeContributionValue(amount, apyPct, model, startMs, nowMs) {
   const t = Math.max(0, nowMs - startMs);
   const apy = apyPct / 100;
 
-  if (!Number.isFinite(deposit) || !Number.isFinite(apy) || deposit < 0) return 0;
-  if (!Number.isFinite(startMs)) return deposit;
+  if (!Number.isFinite(amount) || !Number.isFinite(apy) || amount < 0) return 0;
+  if (!Number.isFinite(startMs)) return amount;
+  if (startMs > nowMs) return 0;
 
   if (model === "simple") {
     const years = t / YEAR_MS;
-    return deposit * (1 + apy * years);
+    return amount * (1 + apy * years);
   }
 
-  // "effective" APY: deposit grows by (1+apy) over 1 year
-  // value(t) = deposit * (1+apy)^(t / 1year)
-  return deposit * Math.pow(1 + apy, t / YEAR_MS);
+  return amount * Math.pow(1 + apy, t / YEAR_MS);
+}
+
+function normalizeContributionEntries(platform) {
+  const raw = Array.isArray(platform?.contributions) ? platform.contributions : [];
+  const normalized = raw
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => ({
+      amount: Number(entry.amount ?? 0),
+      startMs: Number(entry.startMs ?? platform?.startMs ?? Date.now()),
+    }))
+    .filter((entry) => Number.isFinite(entry.amount) && entry.amount >= 0 && Number.isFinite(entry.startMs));
+
+  if (normalized.length) {
+    return normalized.sort((a, b) => a.startMs - b.startMs);
+  }
+
+  const fallbackAmount = Number(platform?.deposit ?? 0);
+  const fallbackStartMs = Number(platform?.startMs ?? Date.now());
+  if (!Number.isFinite(fallbackAmount) || fallbackAmount < 0) return [];
+  return [{ amount: fallbackAmount, startMs: Number.isFinite(fallbackStartMs) ? fallbackStartMs : Date.now() }];
+}
+
+function getPlatformDepositTotal(platform, atMs = Number.POSITIVE_INFINITY) {
+  return normalizeContributionEntries(platform).reduce(
+    (acc, entry) => acc + (entry.startMs <= atMs ? entry.amount : 0),
+    0
+  );
+}
+
+function getPlatformEarliestStartMs(platform) {
+  const entries = normalizeContributionEntries(platform);
+  if (!entries.length) return Number(platform?.startMs ?? Date.now());
+  return entries[0].startMs;
+}
+
+function buildPlatformRecordFromRaw(x) {
+  const contributions = normalizeContributionEntries(x);
+  return {
+    id: typeof x.id === "string" ? x.id : uid(),
+    name: String(x.name ?? "Unknown"),
+    symbol: String(x.symbol ?? ""),
+    deposit: contributions.reduce((acc, entry) => acc + entry.amount, 0),
+    apyPct: Number(x.apyPct ?? 0),
+    model: x.model === "simple" ? "simple" : "effective",
+    startMs: contributions[0]?.startMs ?? Number(x.startMs ?? Date.now()),
+    contributions,
+    source: x.source === "kamino" || x.source === "jupiter" ? x.source : "manual",
+    wallet: typeof x.wallet === "string" ? x.wallet : "",
+    externalId: typeof x.externalId === "string" ? x.externalId : "",
+    apyLastFetchedMs: Number(x.apyLastFetchedMs ?? 0),
+    apyTtlMs: Number(x.apyTtlMs ?? 60_000),
+    liveApy:
+      x.liveApy && typeof x.liveApy === "object"
+        ? {
+            key: String(x.liveApy.key ?? ""),
+            label: String(x.liveApy.label ?? ""),
+            apyPct: Number(x.liveApy.apyPct ?? NaN),
+          }
+        : null,
+  };
+}
+
+function computeValueNow(platform, nowMs) {
+  const apyPct = Number(platform?.apyPct ?? 0);
+  const model = platform?.model === "simple" ? "simple" : "effective";
+  return normalizeContributionEntries(platform).reduce(
+    (acc, entry) => acc + computeContributionValue(entry.amount, apyPct, model, entry.startMs, nowMs),
+    0
+  );
 }
 
 function defaultState() {
@@ -105,28 +175,7 @@ function loadState() {
       },
       platforms: p
         .filter((x) => x && typeof x === "object")
-        .map((x) => ({
-          id: typeof x.id === "string" ? x.id : uid(),
-          name: String(x.name ?? "Unknown"),
-          symbol: String(x.symbol ?? ""),
-          deposit: Number(x.deposit ?? 0),
-          apyPct: Number(x.apyPct ?? 0),
-          model: x.model === "simple" ? "simple" : "effective",
-          startMs: Number(x.startMs ?? Date.now()),
-          source: x.source === "kamino" || x.source === "jupiter" ? x.source : "manual",
-          wallet: typeof x.wallet === "string" ? x.wallet : "",
-          externalId: typeof x.externalId === "string" ? x.externalId : "",
-          apyLastFetchedMs: Number(x.apyLastFetchedMs ?? 0),
-          apyTtlMs: Number(x.apyTtlMs ?? 60_000),
-          liveApy:
-            x.liveApy && typeof x.liveApy === "object"
-              ? {
-                  key: String(x.liveApy.key ?? ""),
-                  label: String(x.liveApy.label ?? ""),
-                  apyPct: Number(x.liveApy.apyPct ?? NaN),
-                }
-              : null,
-        })),
+        .map((x) => buildPlatformRecordFromRaw(x)),
     };
   } catch {
     return defaultState();
@@ -174,8 +223,10 @@ const els = {
 
   tabDashboard: $("tabDashboard"),
   tabApyBoard: $("tabApyBoard"),
+  tabProjections: $("tabProjections"),
   viewDashboard: $("viewDashboard"),
   viewApyBoard: $("viewApyBoard"),
+  viewProjections: $("viewProjections"),
 
   btnTestTelegram: $("btnTestTelegram"),
   btnStopLiveApy: $("btnStopLiveApy"),
@@ -186,6 +237,16 @@ const els = {
   notifyCronStatus: $("notifyCronStatus"),
   notifyResultStatus: $("notifyResultStatus"),
   notifyTelegramStatus: $("notifyTelegramStatus"),
+  projectionWeekEarned: $("projectionWeekEarned"),
+  projectionWeekValue: $("projectionWeekValue"),
+  projectionMonthEarned: $("projectionMonthEarned"),
+  projectionMonthValue: $("projectionMonthValue"),
+  projectionYearEarned: $("projectionYearEarned"),
+  projectionYearValue: $("projectionYearValue"),
+  projectionCurrentDeposit: $("projectionCurrentDeposit"),
+  projectionCurrentValue: $("projectionCurrentValue"),
+  projectionPositionCount: $("projectionPositionCount"),
+  projectionRows: $("projectionRows"),
 
   inIntervalMs: $("inIntervalMs"),
   inCurrency: $("inCurrency"),
@@ -203,6 +264,11 @@ const els = {
   editStart: $("editStart"),
   editModel: $("editModel"),
   btnSaveEdit: $("btnSaveEdit"),
+  dlgDeposit: $("dlgDeposit"),
+  depositPlatformName: $("depositPlatformName"),
+  depositAmount: $("depositAmount"),
+  depositDate: $("depositDate"),
+  btnSaveDeposit: $("btnSaveDeposit"),
 };
 
 let state = loadState();
@@ -218,6 +284,7 @@ let chartRange = "all"; // "7d" | "30d" | "all"
 const pendingManualApyResetIds = new Set();
 let selectedLiveApyForAdd = null;
 let selectedLiveApyForEdit = null;
+let depositingId = null;
 let latestMonitorStatus = null;
 let latestTelegramTestStatus = "Not sent yet";
 
@@ -268,7 +335,7 @@ const earnedCounterState = {
 };
 
 function computeTotalsSnapshot(nowMs) {
-  const totalDeposit = state.platforms.reduce((acc, p) => acc + (Number.isFinite(p.deposit) ? p.deposit : 0), 0);
+  const totalDeposit = state.platforms.reduce((acc, p) => acc + getPlatformDepositTotal(p, nowMs), 0);
   const totalValue = state.platforms.reduce(
     (acc, p) => acc + computeValueNow({ ...p, apyPct: getEffectiveApyPct(p) }, nowMs),
     0
@@ -416,20 +483,7 @@ function normalizeStateSnapshot(input) {
     },
     platforms: p
       .filter((x) => x && typeof x === "object")
-      .map((x) => ({
-        id: typeof x.id === "string" ? x.id : uid(),
-        name: String(x.name ?? "Unknown"),
-        symbol: String(x.symbol ?? ""),
-        deposit: Number(x.deposit ?? 0),
-        apyPct: Number(x.apyPct ?? 0),
-        model: x.model === "simple" ? "simple" : "effective",
-        startMs: Number(x.startMs ?? Date.now()),
-        source: x.source === "kamino" || x.source === "jupiter" ? x.source : "manual",
-        wallet: typeof x.wallet === "string" ? x.wallet : "",
-        externalId: typeof x.externalId === "string" ? x.externalId : "",
-        apyLastFetchedMs: Number(x.apyLastFetchedMs ?? 0),
-        apyTtlMs: Number(x.apyTtlMs ?? 60_000),
-      })),
+      .map((x) => buildPlatformRecordFromRaw(x)),
   };
 }
 
@@ -629,30 +683,34 @@ function renderTable(nowMs) {
     .map((p) => {
       const effectiveApyPct = getEffectiveApyPct(p);
       const valueNow = computeValueNow({ ...p, apyPct: effectiveApyPct }, nowMs);
-      const earned = valueNow - p.deposit;
+      const depositNow = getPlatformDepositTotal(p, nowMs);
+      const earned = valueNow - depositNow;
       const label = p.symbol ? `${p.name} · ${p.symbol}` : p.name;
       const apyStr = `${effectiveApyPct.toFixed(2)}%`;
-      const startStr = new Date(p.startMs).toLocaleString();
+      const startStr = new Date(getPlatformEarliestStartMs(p)).toLocaleString();
       const modelBadge = p.model === "simple" ? "Simple" : "APY";
       const platformLiveApy = getPlatformLiveApy(p);
-        const liveBadge = platformLiveApy ? `<span class="pill" style="margin-left:8px">LIVE ${escapeHtml(platformLiveApy.label || "APY")}</span>` : "";
+      const liveBadge = platformLiveApy ? `<span class="pill" style="margin-left:8px">LIVE ${escapeHtml(platformLiveApy.label || "APY")}</span>` : "";
       const sourceBadge =
         p.source && p.source !== "manual"
           ? `<span class="pill" style="margin-left:8px">${escapeHtml(p.source)}</span>`
           : "";
+      const topUpCount = Math.max(0, normalizeContributionEntries(p).length - 1);
+      const topUpBadge = topUpCount ? `<span class="pill" style="margin-left:8px">${topUpCount} top-up${topUpCount === 1 ? "" : "s"}</span>` : "";
 
       return `
         <tr data-id="${p.id}">
           <td>
             <span class="pill"><span class="pill__dot"></span>${escapeHtml(label)}</span>
           </td>
-          <td>${escapeHtml(formatMoney(p.deposit, { currency, decimals }))}</td>
+          <td>${escapeHtml(formatMoney(depositNow, { currency, decimals }))}${topUpBadge}</td>
           <td>${escapeHtml(apyStr)} <span class="pill" style="margin-left:8px">${escapeHtml(modelBadge)}</span>${liveBadge}${sourceBadge}</td>
           <td><strong>${escapeHtml(formatMoney(earned, { currency, decimals }))}</strong></td>
           <td>${escapeHtml(formatMoney(valueNow, { currency, decimals }))}</td>
           <td>${escapeHtml(startStr)}</td>
           <td>
             <div class="rowActions">
+              <button class="linkBtn" data-action="deposit" type="button">Deposit</button>
               <button class="linkBtn" data-action="edit" type="button">Edit</button>
               <button class="linkBtn linkBtn--danger" data-action="delete" type="button">Delete</button>
             </div>
@@ -667,7 +725,7 @@ function renderTable(nowMs) {
 
 function renderTotals(nowMs) {
   const { currency, decimals } = state.settings;
-  const totalDeposit = state.platforms.reduce((acc, p) => acc + (Number.isFinite(p.deposit) ? p.deposit : 0), 0);
+  const totalDeposit = state.platforms.reduce((acc, p) => acc + getPlatformDepositTotal(p, nowMs), 0);
   const totalValue = state.platforms.reduce(
     (acc, p) => acc + computeValueNow({ ...p, apyPct: getEffectiveApyPct(p) }, nowMs),
     0
@@ -691,8 +749,62 @@ function renderTotals(nowMs) {
   renderBaselineChips(nowMs);
 }
 
+function renderProjections(nowMs) {
+  const { currency, decimals } = state.settings;
+  const currentDeposit = state.platforms.reduce((acc, p) => acc + getPlatformDepositTotal(p, nowMs), 0);
+  const currentValue = state.platforms.reduce(
+    (acc, p) => acc + computeValueNow({ ...p, apyPct: getEffectiveApyPct(p) }, nowMs),
+    0
+  );
+
+  const projectionTargets = [
+    { horizonMs: WEEK_MS, earnedEl: els.projectionWeekEarned, valueEl: els.projectionWeekValue },
+    { horizonMs: MONTH_MS, earnedEl: els.projectionMonthEarned, valueEl: els.projectionMonthValue },
+    { horizonMs: YEAR_MS, earnedEl: els.projectionYearEarned, valueEl: els.projectionYearValue },
+  ];
+
+  for (const projection of projectionTargets) {
+    const futureMs = nowMs + projection.horizonMs;
+    const futureValue = state.platforms.reduce(
+      (acc, p) => acc + computeValueNow({ ...p, apyPct: getEffectiveApyPct(p) }, futureMs),
+      0
+    );
+    const earnedDelta = futureValue - currentValue;
+    if (projection.earnedEl) projection.earnedEl.textContent = formatMoney(earnedDelta, { currency, decimals });
+    if (projection.valueEl) projection.valueEl.textContent = `Value then: ${formatMoney(futureValue, { currency, decimals })}`;
+  }
+
+  if (els.projectionCurrentDeposit) els.projectionCurrentDeposit.textContent = formatMoney(currentDeposit, { currency, decimals });
+  if (els.projectionCurrentValue) els.projectionCurrentValue.textContent = formatMoney(currentValue, { currency, decimals });
+  if (els.projectionPositionCount) els.projectionPositionCount.textContent = String(state.platforms.length);
+
+  if (!els.projectionRows) return;
+  const rows = state.platforms
+    .map((platform) => {
+      const depositNow = getPlatformDepositTotal(platform, nowMs);
+      const currentPlatformValue = computeValueNow({ ...platform, apyPct: getEffectiveApyPct(platform) }, nowMs);
+      const weekValue = computeValueNow({ ...platform, apyPct: getEffectiveApyPct(platform) }, nowMs + WEEK_MS);
+      const monthValue = computeValueNow({ ...platform, apyPct: getEffectiveApyPct(platform) }, nowMs + MONTH_MS);
+      const yearValue = computeValueNow({ ...platform, apyPct: getEffectiveApyPct(platform) }, nowMs + YEAR_MS);
+      const topUpCount = Math.max(0, normalizeContributionEntries(platform).length - 1);
+      const label = platform.symbol ? `${platform.name} · ${platform.symbol}` : platform.name;
+      return `
+        <tr>
+          <td>${escapeHtml(label)}</td>
+          <td>${escapeHtml(formatMoney(depositNow, { currency, decimals }))}</td>
+          <td>${escapeHtml(formatMoney(weekValue - currentPlatformValue, { currency, decimals }))}</td>
+          <td>${escapeHtml(formatMoney(monthValue - currentPlatformValue, { currency, decimals }))}</td>
+          <td>${escapeHtml(formatMoney(yearValue - currentPlatformValue, { currency, decimals }))}</td>
+          <td>${topUpCount}</td>
+        </tr>
+      `;
+    })
+    .join("");
+  els.projectionRows.innerHTML = rows || `<tr><td colspan="6" style="color:rgba(233,236,255,.55);padding:18px">No positions yet. Add one on the Dashboard.</td></tr>`;
+}
+
 function computeEarnRatePerYear(platform, nowMs) {
-  const deposit = Number(platform.deposit);
+  const deposit = getPlatformDepositTotal(platform, nowMs);
   const apy = Number(getEffectiveApyPct(platform)) / 100;
   if (!Number.isFinite(deposit) || deposit < 0 || !Number.isFinite(apy)) return 0;
   if (platform.model === "simple") {
@@ -761,7 +873,7 @@ function renderBaselineChips(nowMs) {
 }
 
 function computeTotalEarnedAt(atMs) {
-  const totalDeposit = state.platforms.reduce((acc, p) => acc + (Number.isFinite(p.deposit) ? p.deposit : 0), 0);
+  const totalDeposit = state.platforms.reduce((acc, p) => acc + getPlatformDepositTotal(p, atMs), 0);
   const totalValue = state.platforms.reduce(
     (acc, p) => acc + computeValueNow({ ...p, apyPct: getEffectiveApyPct(p) }, atMs),
     0
@@ -772,7 +884,7 @@ function computeTotalEarnedAt(atMs) {
 function buildEarningsSeries(nowMs) {
   if (!state.platforms.length) return [];
   const validStarts = state.platforms
-    .map((p) => Number(p.startMs))
+    .map((p) => Number(getPlatformEarliestStartMs(p)))
     .filter((x) => Number.isFinite(x) && x > 0);
   const earliest = validStarts.length ? Math.min(...validStarts) : nowMs;
   let rangeStartMs = earliest;
@@ -987,7 +1099,10 @@ function setChartRange(nextRange) {
 }
 
 function renderClockSkew(nowMs) {
-  const maxFuture = state.platforms.reduce((m, p) => Math.max(m, p.startMs ?? 0), 0);
+  const maxFuture = state.platforms.reduce((m, p) => {
+    const latestContribution = normalizeContributionEntries(p).reduce((latest, entry) => Math.max(latest, entry.startMs), 0);
+    return Math.max(m, latestContribution);
+  }, 0);
   const skew = maxFuture - nowMs;
   if (skew > 60_000) {
     els.clockSkew.textContent = "Some start times are in the future";
@@ -1017,22 +1132,23 @@ function buildMonitorStatePayload() {
           }
         : null,
     },
-    platforms: state.platforms.map((platform) => ({
-      id: platform.id,
-      name: platform.name,
-      symbol: platform.symbol,
-      deposit: platform.deposit,
-      apyPct: platform.apyPct,
-      model: platform.model,
-      startMs: platform.startMs,
-      source: platform.source,
-      wallet: platform.wallet,
-      externalId: platform.externalId,
-      apyLastFetchedMs: platform.apyLastFetchedMs,
-      apyTtlMs: platform.apyTtlMs,
-      liveApy: platform.liveApy
-        ? {
-            key: String(platform.liveApy.key ?? ""),
+      platforms: state.platforms.map((platform) => ({
+        id: platform.id,
+        name: platform.name,
+        symbol: platform.symbol,
+        deposit: getPlatformDepositTotal(platform),
+        apyPct: platform.apyPct,
+        model: platform.model,
+        startMs: getPlatformEarliestStartMs(platform),
+        source: platform.source,
+        wallet: platform.wallet,
+        externalId: platform.externalId,
+        apyLastFetchedMs: platform.apyLastFetchedMs,
+        apyTtlMs: platform.apyTtlMs,
+        contributions: normalizeContributionEntries(platform),
+        liveApy: platform.liveApy
+          ? {
+              key: String(platform.liveApy.key ?? ""),
             label: String(platform.liveApy.label ?? ""),
             apyPct: Number(platform.liveApy.apyPct ?? NaN),
           }
@@ -1111,6 +1227,11 @@ function tick() {
   } catch {
     // Non-critical visual hint.
   }
+  try {
+    renderProjections(nowMs);
+  } catch {
+    // Projection view should not break main dashboard flow.
+  }
   if (ENABLE_BROWSER_NOTIFICATIONS) {
     void processNotificationTriggers(nowMs);
   }
@@ -1126,14 +1247,17 @@ function escapeHtml(s) {
 }
 
 function addPlatform({ name, symbol, deposit, apyPct, startMs, model, liveApy = null }) {
+  const normalizedStartMs = Number.isFinite(Number(startMs)) ? Number(startMs) : Date.now();
+  const normalizedDeposit = Number.isFinite(Number(deposit)) ? Number(deposit) : 0;
   const p = {
     id: uid(),
     name,
     symbol,
-    deposit,
+    deposit: normalizedDeposit,
     apyPct,
-    startMs,
+    startMs: normalizedStartMs,
     model,
+    contributions: [{ amount: normalizedDeposit, startMs: normalizedStartMs }],
     source: "manual",
     wallet: "",
     externalId: "",
@@ -1872,8 +1996,43 @@ function deletePlatform(id) {
   tick();
 }
 
+function addDepositToPlatform(id, amount, startMs) {
+  const normalizedAmount = Number(amount);
+  const normalizedStartMs = Number(startMs);
+  if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) return;
+  if (!Number.isFinite(normalizedStartMs)) return;
+
+  state.platforms = state.platforms.map((platform) => {
+    if (platform.id !== id) return platform;
+    const contributions = [
+      ...normalizeContributionEntries(platform),
+      { amount: normalizedAmount, startMs: normalizedStartMs },
+    ].sort((a, b) => a.startMs - b.startMs);
+    return {
+      ...platform,
+      deposit: contributions.reduce((acc, entry) => acc + entry.amount, 0),
+      startMs: contributions[0]?.startMs ?? platform.startMs,
+      contributions,
+    };
+  });
+  saveState(state);
+  tick();
+}
+
 function updatePlatform(id, patch, options = {}) {
-  state.platforms = state.platforms.map((p) => (p.id === id ? { ...p, ...patch } : p));
+  state.platforms = state.platforms.map((platform) => {
+    if (platform.id !== id) return platform;
+    const next = { ...platform, ...patch };
+    const contributions = Array.isArray(patch.contributions)
+      ? normalizeContributionEntries({ ...platform, contributions: patch.contributions })
+      : normalizeContributionEntries(next);
+    return {
+      ...next,
+      contributions,
+      deposit: contributions.reduce((acc, entry) => acc + entry.amount, 0),
+      startMs: contributions[0]?.startMs ?? next.startMs,
+    };
+  });
   if (options.resetApyComparison) {
     pendingManualApyResetIds.add(id);
   }
@@ -1905,27 +2064,11 @@ async function importJsonFile(file) {
   next.settings.decimals = clampInt(Number(parsed.settings?.decimals ?? state.settings.decimals), 0, 8);
   next.platforms = Array.isArray(parsed.platforms) ? parsed.platforms : [];
 
-  state = {
-    settings: next.settings,
-    platforms: next.platforms
-      .filter((x) => x && typeof x === "object")
-      .map((x) => ({
-        id: typeof x.id === "string" ? x.id : uid(),
-        name: String(x.name ?? "Unknown"),
-        symbol: String(x.symbol ?? ""),
-        deposit: Number(x.deposit ?? 0),
-        apyPct: Number(x.apyPct ?? 0),
-        model: x.model === "simple" ? "simple" : "effective",
-        startMs: Number(x.startMs ?? Date.now()),
-        liveApy:
-          x.liveApy && typeof x.liveApy === "object"
-            ? {
-                key: String(x.liveApy.key ?? ""),
-                label: String(x.liveApy.label ?? ""),
-                apyPct: Number(x.liveApy.apyPct ?? NaN),
-              }
-            : null,
-      })),
+    state = {
+      settings: next.settings,
+      platforms: next.platforms
+        .filter((x) => x && typeof x === "object")
+        .map((x) => buildPlatformRecordFromRaw(x)),
   };
 
   saveState(state);
@@ -1943,11 +2086,13 @@ function bindSettingsToUi() {
 }
 
 function switchTopView(view) {
-  const showDashboard = view !== "apy";
-  if (els.viewDashboard) els.viewDashboard.style.display = showDashboard ? "" : "none";
-  if (els.viewApyBoard) els.viewApyBoard.style.display = showDashboard ? "none" : "";
-  if (els.tabDashboard) els.tabDashboard.classList.toggle("tab--active", showDashboard);
-  if (els.tabApyBoard) els.tabApyBoard.classList.toggle("tab--active", !showDashboard);
+  const activeView = view === "apy" || view === "projections" ? view : "dashboard";
+  if (els.viewDashboard) els.viewDashboard.style.display = activeView === "dashboard" ? "" : "none";
+  if (els.viewApyBoard) els.viewApyBoard.style.display = activeView === "apy" ? "" : "none";
+  if (els.viewProjections) els.viewProjections.style.display = activeView === "projections" ? "" : "none";
+  if (els.tabDashboard) els.tabDashboard.classList.toggle("tab--active", activeView === "dashboard");
+  if (els.tabApyBoard) els.tabApyBoard.classList.toggle("tab--active", activeView === "apy");
+  if (els.tabProjections) els.tabProjections.classList.toggle("tab--active", activeView === "projections");
 }
 
 async function init() {
@@ -2049,6 +2194,7 @@ async function init() {
   }
   if (els.tabDashboard) els.tabDashboard.addEventListener("click", () => switchTopView("dashboard"));
   if (els.tabApyBoard) els.tabApyBoard.addEventListener("click", () => switchTopView("apy"));
+  if (els.tabProjections) els.tabProjections.addEventListener("click", () => switchTopView("projections"));
   if (els.stableApyRows) {
     els.stableApyRows.addEventListener("click", (e) => {
       const btn = e.target?.closest?.("button[data-action='useStableApy']");
@@ -2139,19 +2285,30 @@ async function init() {
       return;
     }
 
+    if (action === "deposit") {
+      const p = state.platforms.find((x) => x.id === id);
+      if (!p || !els.dlgDeposit) return;
+      depositingId = id;
+      if (els.depositPlatformName) els.depositPlatformName.value = p.symbol ? `${p.name} (${p.symbol})` : p.name;
+      if (els.depositAmount) els.depositAmount.value = "";
+      if (els.depositDate) els.depositDate.value = toDatetimeLocalValue(Date.now());
+      els.dlgDeposit.showModal();
+      return;
+    }
+
     if (action === "edit") {
       const p = state.platforms.find((x) => x.id === id);
       if (!p) return;
       editingId = id;
       els.editName.value = p.name;
       els.editSymbol.value = p.symbol ?? "";
-      els.editDeposit.value = String(p.deposit);
+      els.editDeposit.value = String(getPlatformDepositTotal(p));
       els.editApy.value = String(p.apyPct);
       selectedLiveApyForEdit = getPlatformLiveApy(p);
       if (selectedLiveApyForEdit) {
         els.editApy.value = selectedLiveApyForEdit.apyPct.toFixed(4);
       }
-      els.editStart.value = toDatetimeLocalValue(p.startMs);
+      els.editStart.value = toDatetimeLocalValue(getPlatformEarliestStartMs(p));
       els.editModel.value = p.model === "simple" ? "simple" : "effective";
       els.dlgEdit.showModal();
       return;
@@ -2169,6 +2326,8 @@ async function init() {
     const id = editingId;
     editingId = null;
     if (!id) return;
+    const existing = state.platforms.find((platform) => platform.id === id);
+    if (!existing) return;
 
     const name = els.editName.value.trim();
     const symbol = els.editSymbol.value.trim();
@@ -2181,14 +2340,46 @@ async function init() {
     if (!Number.isFinite(deposit) || deposit < 0) return;
     if (!Number.isFinite(apyPct)) return;
     if (!Number.isFinite(startMs)) return;
+    const currentDeposit = getPlatformDepositTotal(existing);
+    const currentStartMs = getPlatformEarliestStartMs(existing);
+    const preserveContributions =
+      Math.abs(deposit - currentDeposit) < 1e-9 &&
+      Math.abs(startMs - currentStartMs) < 1;
 
     updatePlatform(
       id,
-      { name, symbol, deposit, apyPct, startMs, model, liveApy: normalizeLiveApySelection(selectedLiveApyForEdit) },
+      {
+        name,
+        symbol,
+        deposit,
+        apyPct,
+        startMs,
+        model,
+        contributions: preserveContributions ? normalizeContributionEntries(existing) : [{ amount: deposit, startMs }],
+        liveApy: normalizeLiveApySelection(selectedLiveApyForEdit),
+      },
       { resetApyComparison: true }
     );
     selectedLiveApyForEdit = null;
   });
+  }
+
+  if (els.dlgDeposit) {
+    els.dlgDeposit.addEventListener("close", () => {
+      if (els.dlgDeposit.returnValue !== "save") {
+        depositingId = null;
+        return;
+      }
+      const id = depositingId;
+      depositingId = null;
+      if (!id) return;
+
+      const amount = parseDecimal(els.depositAmount?.value ?? "");
+      const startMs = fromDatetimeLocalValue(els.depositDate?.value ?? "");
+      if (!Number.isFinite(amount) || amount <= 0) return;
+      if (!Number.isFinite(startMs)) return;
+      addDepositToPlatform(id, amount, startMs);
+    });
   }
 
   try {

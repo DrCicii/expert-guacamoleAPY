@@ -39,6 +39,7 @@
       <section class="tabs">
         <button id="tabDashboard" class="tab tab--active" type="button">Dashboard</button>
         <button id="tabApyBoard" class="tab" type="button">APY Board</button>
+        <button id="tabProjections" class="tab" type="button">Projections</button>
       </section>
 
       <section id="viewDashboard">
@@ -298,6 +299,71 @@
         </div>
       </section>
       </section>
+
+      <section id="viewProjections" style="display:none;">
+        <section class="grid">
+          <div class="card">
+            <div class="card__title">Projection summary</div>
+            <div class="projectionCards">
+              <div class="projectionCard">
+                <div class="projectionCard__label">Next 7 days</div>
+                <div id="projectionWeekEarned" class="projectionCard__value">$0.0000</div>
+                <div id="projectionWeekValue" class="projectionCard__meta">Value then: $0.0000</div>
+              </div>
+              <div class="projectionCard">
+                <div class="projectionCard__label">Next 30 days</div>
+                <div id="projectionMonthEarned" class="projectionCard__value">$0.0000</div>
+                <div id="projectionMonthValue" class="projectionCard__meta">Value then: $0.0000</div>
+              </div>
+              <div class="projectionCard">
+                <div class="projectionCard__label">Next 1 year</div>
+                <div id="projectionYearEarned" class="projectionCard__value">$0.0000</div>
+                <div id="projectionYearValue" class="projectionCard__meta">Value then: $0.0000</div>
+              </div>
+            </div>
+            <div id="projectionHint" class="hint">
+              Estimates assume current APY and current deposit schedule stay the same, with no extra future top-ups beyond what is already added.
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card__title">Portfolio assumptions</div>
+            <div class="projectionStats">
+              <div class="projectionStat">
+                <div class="projectionStat__label">Current deposit base</div>
+                <div id="projectionCurrentDeposit" class="projectionStat__value">$0.0000</div>
+              </div>
+              <div class="projectionStat">
+                <div class="projectionStat__label">Current value now</div>
+                <div id="projectionCurrentValue" class="projectionStat__value">$0.0000</div>
+              </div>
+              <div class="projectionStat">
+                <div class="projectionStat__label">Active positions</div>
+                <div id="projectionPositionCount" class="projectionStat__value">0</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card card--table">
+          <div class="card__title">Per-position projections</div>
+          <div class="tableWrap">
+            <table class="table" aria-label="Per-position projections">
+              <thead>
+                <tr>
+                  <th>Platform</th>
+                  <th>Deposit now</th>
+                  <th>Week earned</th>
+                  <th>Month earned</th>
+                  <th>Year earned</th>
+                  <th>Top-ups</th>
+                </tr>
+              </thead>
+              <tbody id="projectionRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
     </main>
 
     <dialog id="dlgEdit" class="dlg">
@@ -343,8 +409,37 @@
         </div>
 
         <div class="dlg__actions">
-          <button class="btn btn--ghost" value="cancel">Cancel</button>
+          <button class="btn btn--ghost" type="submit" formnovalidate value="cancel">Cancel</button>
           <button id="btnSaveEdit" class="btn btn--primary" value="save">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="dlgDeposit" class="dlg">
+      <form method="dialog" class="dlg__card">
+        <div class="dlg__title">Add deposit top-up</div>
+
+        <div class="form">
+          <label class="field">
+            <span class="field__label">Position</span>
+            <input id="depositPlatformName" class="input" readonly />
+          </label>
+
+          <div class="form__row">
+            <label class="field">
+              <span class="field__label">Amount</span>
+              <input id="depositAmount" class="input" inputmode="decimal" placeholder="e.g. 250" required />
+            </label>
+            <label class="field">
+              <span class="field__label">Date</span>
+              <input id="depositDate" class="input" type="datetime-local" required />
+            </label>
+          </div>
+        </div>
+
+        <div class="dlg__actions">
+          <button class="btn btn--ghost" type="submit" formnovalidate value="cancel">Cancel</button>
+          <button id="btnSaveDeposit" class="btn btn--primary" value="save">Add deposit</button>
         </div>
       </form>
     </dialog>

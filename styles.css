@@ -504,6 +504,57 @@ label.file input{display:none}
   text-align:right;
   font-variant-numeric: tabular-nums;
 }
+.projectionCards{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  gap:10px;
+}
+.projectionCard{
+  border:1px solid rgba(120,200,255,.14);
+  background: rgba(0,0,0,.18);
+  border-radius:16px;
+  padding:14px;
+}
+.projectionCard__label{
+  color:var(--muted2);
+  font-size:12px;
+}
+.projectionCard__value{
+  margin-top:8px;
+  font-size:24px;
+  font-weight:800;
+  letter-spacing:-.03em;
+  font-variant-numeric: tabular-nums;
+}
+.projectionCard__meta{
+  margin-top:6px;
+  color:var(--muted);
+  font-size:12px;
+  font-variant-numeric: tabular-nums;
+}
+.projectionStats{
+  display:grid;
+  gap:10px;
+}
+.projectionStat{
+  border:1px solid rgba(120,200,255,.12);
+  background: rgba(255,255,255,.03);
+  border-radius:14px;
+  padding:12px 14px;
+}
+.projectionStat__label{
+  color:var(--muted2);
+  font-size:12px;
+}
+.projectionStat__value{
+  margin-top:6px;
+  font-size:18px;
+  font-weight:800;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 980px){
+  .projectionCards{grid-template-columns:1fr}
+}
 .tableWrap{overflow:auto; border-top:1px solid rgba(120,200,255,.08)}
 .table{
   width:100%;

@@ -18,21 +18,26 @@ function formatMoney(amount, { currency, decimals }) {
 }
 
 function computeValueNow(platform, nowMs, liveApyPct) {
-  const deposit = Number(platform.deposit ?? 0);
   const apyPct = Number.isFinite(liveApyPct) ? liveApyPct : Number(platform.apyPct ?? 0);
-  const startMs = Number(platform.startMs ?? nowMs);
-  const t = Math.max(0, nowMs - startMs);
-  const apy = apyPct / 100;
+  const contributions = Array.isArray(platform?.contributions) && platform.contributions.length
+    ? platform.contributions
+    : [{ amount: Number(platform.deposit ?? 0), startMs: Number(platform.startMs ?? nowMs) }];
 
-  if (!Number.isFinite(deposit) || deposit < 0 || !Number.isFinite(apy)) return 0;
-  if (!Number.isFinite(startMs)) return deposit;
+  return contributions.reduce((acc, entry) => {
+    const amount = Number(entry.amount ?? 0);
+    const startMs = Number(entry.startMs ?? platform.startMs ?? nowMs);
+    const t = Math.max(0, nowMs - startMs);
+    const apy = apyPct / 100;
+    if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(apy)) return acc;
+    if (!Number.isFinite(startMs) || startMs > nowMs) return acc;
 
-  if (platform.model === "simple") {
-    const years = t / YEAR_MS;
-    return deposit * (1 + apy * years);
-  }
+    if (platform.model === "simple") {
+      const years = t / YEAR_MS;
+      return acc + amount * (1 + apy * years);
+    }
 
-  return deposit * Math.pow(1 + apy, t / YEAR_MS);
+    return acc + amount * Math.pow(1 + apy, t / YEAR_MS);
+  }, 0);
 }
 
 function formatUtcStamp(ms) {
@@ -125,7 +130,16 @@ module.exports = async function handler(req, res) {
       effectiveApyByPlatformId[platform.id] = await resolvePlatformLiveApyPct(platform);
     }
 
-    const totalDeposit = saved.platforms.reduce((acc, p) => acc + (Number.isFinite(p.deposit) ? p.deposit : 0), 0);
+    const totalDeposit = saved.platforms.reduce((acc, p) => {
+      const contributions = Array.isArray(p?.contributions) && p.contributions.length
+        ? p.contributions
+        : [{ amount: Number(p.deposit ?? 0), startMs: Number(p.startMs ?? nowMs) }];
+      return acc + contributions.reduce((sum, entry) => {
+        const amount = Number(entry.amount ?? 0);
+        const startMs = Number(entry.startMs ?? p.startMs ?? nowMs);
+        return sum + (Number.isFinite(amount) && amount >= 0 && Number.isFinite(startMs) && startMs <= nowMs ? amount : 0);
+      }, 0);
+    }, 0);
     const totalValue = saved.platforms.reduce(
       (acc, p) => acc + computeValueNow(p, nowMs, effectiveApyByPlatformId[p.id]),
       0
