@@ -64,7 +64,7 @@ function normalizeLiveApySelection(liveApy) {
   const key = String(liveApy.key ?? "").trim();
   const label = String(liveApy.label ?? "").trim();
   const apyPct = Number(liveApy.apyPct ?? NaN);
-  if (!key || !Number.isFinite(apyPct)) return null;
+  if (!key) return null;
   return { key, label, apyPct };
 }
 

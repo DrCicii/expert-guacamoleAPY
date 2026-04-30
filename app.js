@@ -284,6 +284,7 @@ let chartRange = "all"; // "7d" | "30d" | "all"
 const pendingManualApyResetIds = new Set();
 let selectedLiveApyForAdd = null;
 let selectedLiveApyForEdit = null;
+let liveApyTargetPlatformId = null;
 let depositingId = null;
 let latestMonitorStatus = null;
 let latestTelegramTestStatus = "Not sent yet";
@@ -357,7 +358,7 @@ function normalizeLiveApySelection(liveApy) {
   const key = String(liveApy.key ?? "").trim();
   const label = String(liveApy.label ?? "").trim();
   const apyPct = Number(liveApy.apyPct ?? NaN);
-  if (!key || !Number.isFinite(apyPct)) return null;
+  if (!key) return null;
   return { key, label, apyPct };
 }
 
@@ -711,6 +712,7 @@ function renderTable(nowMs) {
           <td>
             <div class="rowActions">
               <button class="linkBtn" data-action="deposit" type="button">Deposit</button>
+              ${platformLiveApy ? `<button class="linkBtn" data-action="change-live" type="button">Change live</button>` : ""}
               <button class="linkBtn" data-action="edit" type="button">Edit</button>
               <button class="linkBtn linkBtn--danger" data-action="delete" type="button">Delete</button>
             </div>
@@ -2180,14 +2182,19 @@ async function init() {
   }
   if (els.btnStopLiveApy) {
     els.btnStopLiveApy.addEventListener("click", () => {
+      const hadLiveApyTarget = Boolean(liveApyTargetPlatformId);
       if (editingId) {
         selectedLiveApyForEdit = null;
+      } else if (liveApyTargetPlatformId) {
+        liveApyTargetPlatformId = null;
       } else {
         selectedLiveApyForAdd = null;
       }
       if (els.stableApyLastUpdated) {
         els.stableApyLastUpdated.textContent = editingId
           ? " Live APY cleared for the edit form."
+          : hadLiveApyTarget
+            ? " Live APY reassignment cancelled."
           : " Live APY cleared for new positions.";
       }
     });
@@ -2204,9 +2211,25 @@ async function init() {
       const apyPct = Number(btn.getAttribute("data-apy-pct"));
       if (!key || !Number.isFinite(apyPct)) return;
       const nextLiveApy = { key, label, apyPct };
+      const targetPlatformId = liveApyTargetPlatformId;
       if (editingId) {
         selectedLiveApyForEdit = nextLiveApy;
         if (els.editApy) els.editApy.value = apyPct.toFixed(4);
+      } else if (liveApyTargetPlatformId) {
+        const target = state.platforms.find((platform) => platform.id === liveApyTargetPlatformId);
+        if (!target) {
+          liveApyTargetPlatformId = null;
+          return;
+        }
+        updatePlatform(
+          liveApyTargetPlatformId,
+          {
+            apyPct,
+            liveApy: nextLiveApy,
+          },
+          { resetApyComparison: true }
+        );
+        liveApyTargetPlatformId = null;
       } else {
         selectedLiveApyForAdd = nextLiveApy;
         if (els.inApy) els.inApy.value = apyPct.toFixed(4);
@@ -2214,6 +2237,8 @@ async function init() {
       if (els.stableApyLastUpdated) {
         els.stableApyLastUpdated.textContent = editingId
           ? ` Selected for edited position: ${label} (${apyPct.toFixed(2)}%).`
+          : targetPlatformId
+            ? ` Reattached live APY: ${label} (${apyPct.toFixed(2)}%).`
           : ` Selected for new position: ${label} (${apyPct.toFixed(2)}%).`;
       }
     });
@@ -2282,6 +2307,20 @@ async function init() {
       const ok = confirm(`Delete "${p?.name ?? "platform"}"?`);
       if (!ok) return;
       deletePlatform(id);
+      return;
+    }
+
+    if (action === "change-live") {
+      const p = state.platforms.find((x) => x.id === id);
+      if (!p) return;
+      liveApyTargetPlatformId = id;
+      editingId = null;
+      selectedLiveApyForEdit = null;
+      if (els.stableApyLastUpdated) {
+        const label = p.symbol ? `${p.name} (${p.symbol})` : p.name;
+        els.stableApyLastUpdated.textContent = ` Pick a new live APY for ${label}, then click USE.`;
+      }
+      switchTopView("apy");
       return;
     }
 
